@@ -92,6 +92,39 @@ if (month !== null && month > MONTH_ALERT_MIN && meta.sent.monthAlert !== today)
   meta.sent.monthAlert = today;
 }
 
+// Look-back summary: "/cpu 5" sent to the bot (picked up on the next run, up
+// to 15 min later) or the workflow input "days".
+function summary(days) {
+  const since = Date.now() - days * 864e5, proj = {}, route = {};
+  let cov = 0;
+  for (const [k, ms] of Object.entries(rows)) {
+    if (Date.parse(k.split("|")[0]) < since) continue;
+    const [, , p, r] = k.split("|");
+    proj[p] = (proj[p] || 0) + ms; route[`${p} ${r}`] = (route[`${p} ${r}`] || 0) + ms;
+  }
+  for (const k of Object.keys(meta.covered)) if (Date.parse(k) >= since) cov++;
+  const total = Object.values(proj).reduce((a, b) => a + b, 0);
+  const list = (o, n) => Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, n).map(([n, ms]) => `• ${esc(n)}: ${fmt(min(ms))}`).join("\n") || "• nothing";
+  const first = Object.keys(meta.covered).sort()[0];
+  return `<b>Vercel CPU, last ${days} day${days === 1 ? "" : "s"}</b>\nTotal: ${fmt(min(total))}. Tracked ${Math.round((cov / (days * 1440)) * 100)} % of the time${first ? ` (data since ${first.slice(0, 10)})` : ""}.\n\nBy project:\n${list(proj, 10)}\n\nTop pages:\n${list(route, 5)}`;
+}
+const wanted = new Set();
+if (Number(process.env.SUMMARY_DAYS) > 0) wanted.add(Math.min(40, Math.round(Number(process.env.SUMMARY_DAYS))));
+if (process.env.TELEGRAM_BOT_TOKEN && !process.env.DRY_RUN) {
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/getUpdates?timeout=0&allowed_updates=%5B%22message%22%5D${meta.tgOffset ? `&offset=${meta.tgOffset}` : ""}`);
+    const j = await r.json();
+    for (const u of j.ok ? j.result : []) {
+      meta.tgOffset = u.update_id + 1;
+      const m = u.message;
+      if (!m || String(m.chat?.id) !== String(process.env.TELEGRAM_CHAT_ID)) continue;
+      const hit = /^\/cpu(?:@\w+)?\s*(\d+)?/i.exec(m.text || "");
+      if (hit) wanted.add(Math.min(40, Math.max(1, Number(hit[1] || 7))));
+    }
+  } catch { /* a webhook or a network error: skip the bot command check */ }
+}
+for (const d of wanted) await tg(summary(d));
+
 fs.writeFileSync(ROWS, JSON.stringify(rows));
 fs.writeFileSync(META, JSON.stringify(meta));
 console.log(`ok: +${added} rows, ${Object.keys(rows).length} kept`); // no usage data in public logs
