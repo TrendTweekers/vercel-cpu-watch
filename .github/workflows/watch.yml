@@ -1,0 +1,39 @@
+name: vercel-cpu-watch
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+    inputs:
+      test_message:
+        description: "Send a Telegram test message"
+        type: boolean
+        default: false
+concurrency: { group: watch, cancel-in-progress: false }
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/cache/restore@v4
+        with: { path: state, key: "state-${{ github.run_id }}", restore-keys: "state-" }
+      - name: Collect and report
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_SCOPE: ${{ secrets.VERCEL_SCOPE }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node watch.mjs
+      - name: Test message
+        if: ${{ inputs.test_message }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          curl -sf -o /dev/null -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" --data-urlencode text="Vercel CPU watch is connected. You get a daily report around 07:00 and a warning if use jumps." && echo sent
+      - uses: actions/cache/save@v4
+        if: always()
+        with: { path: state, key: "state-${{ github.run_id }}" }
