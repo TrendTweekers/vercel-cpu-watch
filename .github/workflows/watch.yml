@@ -31,6 +31,13 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SUMMARY_DAYS: ${{ inputs.days }}
         run: node watch.mjs
+      - name: Bitcoin payment watch
+        continue-on-error: true
+        env:
+          BTC_ADDRESS: ${{ secrets.BTC_ADDRESS }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node btc.mjs
       - name: Test message
         if: ${{ inputs.test_message }}
         env:
